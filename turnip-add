@@ -63,7 +63,7 @@ validate_tests_filepath() {
         exit 1
     fi
 
-    if ! echo "$1" | grep -qE '.+\.tar$'; then
+    if ! tar -tf "$1" >/dev/null 2>&1; then
         echo "turnip-add: $1: not a valid tar file" >&2
         exit 1
     fi
