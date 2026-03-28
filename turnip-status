@@ -8,91 +8,110 @@
 #
 # turnip-status lists all submissions a student has made.
 
+# ============================
 # ----- helper functions -----
+# ============================
+
+# checks ONLY one argument was given
 validate_argument_count() {
-  if [ "$1" -ne 1 ]; then
-    echo "usage: turnip-status <zid>" >&2
-    exit 1
-  fi
+    if [ "$1" -ne 1 ]; then
+        echo "usage: turnip-status <zid>" >&2
+        exit 1
+    fi
 }
 
+# checks if the zID corresponds to the following criteria:
+# "A student zid should be a 'z' followed by 7 digits."
 validate_zid() {
-  if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
-    echo "turnip-status: invalid zid: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
+        echo "turnip-status: invalid zid: $1" >&2
+        exit 1
+    fi
 }
 
+# helper to run checks on given arguments
+validate_arguments() {
+    validate_argument_count "$#"
+    validate_zid "$1"
+}
+
+# check if a student has made any submissions for a given assignment
 validate_student_directory() {
-  if [ ! -d "$1" ]; then
-    echo "no submissions for $2"
-    return 1
-  fi
+    if [ ! -d "$1" ]; then
+        echo "no submissions for $2"
+        return 1
+    fi
+
+    return 0
 }
 
+# prints the number of a given student has made for a given assignment
 print_submission_number() {
-  num_submissions=$(ls -1 "$1" 2>/dev/null | wc -l)
-  echo "* $num_submissions submissions for $(basename "$2")"
+    num_submissions=$(ls -1 "$1" 2>/dev/null | wc -l)
+    echo "* $num_submissions submissions for $(basename "$2")"
 }
 
+# helper to get all files in a directory sorted by timestamp (oldest first)
 get_sorted_files() {
-  student_dir="$1"
-  for f in "$student_dir"/*; do
-      [ -e "$f" ] || continue
-      echo "$f"
-  done | sort -t_ -k3,3 -k4,4
+    student_dir="$1"
+    for f in "$student_dir"/*; do
+        [ -e "$f" ] || continue
+        echo "$f"
+    done | sort -t_ -k3,3 -k4,4
 }
 
+# extracts the original filename from the submission storage filename
 extract_original_name() {
-  full="$1"
+    full="$1"
   
-  name=${full%.*}
-  ext=${full##*.}
-  base=$(echo "$name" | sed -E 's/(.*)_[0-9]+_[0-9]{8}_[0-9]{6}$/\1/')
+    name=${full%.*}
+    ext=${full##*.}
+    base=$(echo "$name" | sed -E 's/(.*)_[0-9]+_[0-9]{8}_[0-9]{6}$/\1/')
 
-  echo "$base.$ext"
+    echo "$base.$ext"
 }
 
+# extracts the original timestamp from the submission storage filename,
+# and converts it to the intended style:
+# eg. "Sat Mar 28 14:17:14 2026"
 extract_original_timestamp() {
-  timestamp_string=$(echo "$1" | sed -E 's/.*_([0-9]{8}_[0-9]{6})\..*$/\1/')
+    timestamp_string=$(echo "$1" | sed -E 's/.*_([0-9]{8}_[0-9]{6})\..*$/\1/')
 
-  year=$(echo "$timestamp_string" | cut -c1-4)
-  month=$(echo "$timestamp_string" | cut -c5-6)
-  day=$(echo "$timestamp_string" | cut -c7-8)
-  hour=$(echo "$timestamp_string" | cut -c10-11)
-  min=$(echo "$timestamp_string" | cut -c12-13)
-  sec=$(echo "$timestamp_string" | cut -c14-15)
+    year=$(echo "$timestamp_string" | cut -c1-4)
+    month=$(echo "$timestamp_string" | cut -c5-6)
+    day=$(echo "$timestamp_string" | cut -c7-8)
+    hour=$(echo "$timestamp_string" | cut -c10-11)
+    min=$(echo "$timestamp_string" | cut -c12-13)
+    sec=$(echo "$timestamp_string" | cut -c14-15)
 
-  # return timestamp in intended style
-  date -d "$year-$month-$day $hour:$min:$sec" "+%a %b %e %H:%M:%S %Y"
+    date -d "$year-$month-$day $hour:$min:$sec" "+%a %b %e %H:%M:%S %Y"
 }
 
+# prints the summary of a given submission file in the intended style:
+# eg. "submission 1: answer.sh 47 bytes @ Sat Mar 28 14:17:15 2026"
 print_submission_summary() {
-  file="$1"
-  count="$2"
+    file="$1"
+    count="$2"
 
-  base_filename=$(basename "$file")
-  file_name=$(extract_original_name "$base_filename")
-  file_ts=$(extract_original_timestamp "$base_filename")
-  file_size=$(wc -c <"$file")
+    base_filename=$(basename "$file")
+    file_name=$(extract_original_name "$base_filename")
+    file_ts=$(extract_original_timestamp "$base_filename")
+    file_size=$(wc -c <"$file")
 
-  echo "submission $count: $file_name $file_size bytes @ $file_ts"
+    echo "submission $count: $file_name $file_size bytes @ $file_ts"
 }
 
-# ----- main script -----
-main() {
-  zid="$1"
+# process and print the status for a single student in a single assignment
+print_assignment_status() {
+    assignment_dir="$1"
+    zid="$2"
 
-  validate_argument_count "$#"
-  validate_zid "$zid"
+    student_dir="$assignment_dir/$zid"
+    
+    # if no submission have been made, return quietly
+    validate_student_directory "$student_dir" "$zid" || return 0
 
-  DIR="./.turnip"
-  for assignment in "$DIR"/*; do
-    [ -d "$assignment" ] || continue
-
-    student_dir="$assignment/$zid"
-    validate_student_directory "$student_dir" "$zid" || continue
-    print_submission_number "$student_dir" "$assignment"
+    print_submission_number "$student_dir" "$assignment_dir"
 
     count=1
     files=$(get_sorted_files "$student_dir")
@@ -102,8 +121,25 @@ main() {
         print_submission_summary "$file" "$count"
         count=$((count + 1))
     done
-  done
 }
 
+# =======================
+# ----- main script -----
+# =======================
+main() {
+    validate_arguments "$@"
+
+    zid="$1"
+    turnip_dir="./.turnip"
+
+    for assignment in "$turnip_dir"/*; do
+        [ -d "$assignment" ] || continue
+
+        print_assignment_status "$assignment" "$zid"
+    done
+}
+
+# ======================
 # ----- run script -----
+# ======================
 main "$@"
