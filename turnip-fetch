@@ -14,10 +14,10 @@
 
 # checks if ONLY (two OR three) arguments were given
 validate_argument_count() {
-  if [ "$1" -ne 2 ] && [ "$1" -ne 3 ]; then
-    echo "usage: turnip-fetch <assignment> <zid> [n]" >&2
-    exit 1
-  fi
+    if [ "$1" -ne 2 ] && [ "$1" -ne 3 ]; then
+        echo "usage: turnip-fetch <assignment> <zid> [n]" >&2
+        exit 1
+    fi
 }
 
 # checks filename corresponds to the following criteria:
@@ -26,24 +26,24 @@ validate_argument_count() {
 # 
 # then checks if assignment exists
 validate_assignment() {
-  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
-    echo "turnip-fetch: invalid assignment: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+        echo "turnip-fetch: invalid assignment: $1" >&2
+        exit 1
+    fi
 
-  if ! [ -d "./.turnip/$1" ]; then
-    echo "turnip-fetch: assignment $1 not found" >&2
-    exit 1
-  fi
+    if ! [ -d "./.turnip/$1" ]; then
+        echo "turnip-fetch: assignment $1 not found" >&2
+        exit 1
+    fi
 }
 
 # checks if the zID corresponds to the following criteria:
 # "A student zid should be a 'z' followed by 7 digits."
 validate_zid() {
-  if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
-    echo "turnip-fetch: invalid zid: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
+        echo "turnip-fetch: invalid zid: $1" >&2
+        exit 1
+    fi
 }
 
 # checks that the offset is an integer, either positive or negative
