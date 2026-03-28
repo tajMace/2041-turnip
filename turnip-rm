@@ -2,36 +2,50 @@
 #
 # COMP2041 Turnip - turnip-rm command for the turnip assignment program
 # turnip-rm
+# 
+# This program was written by Taj Mace (z5691836) <taj.mace@unsw.edu.au>
+# on 21/04/2026
 #
 # turnip-rm removes an assignment.
 
+# ============================
 # ----- helper functions -----
+# ============================
+
+# checks ONLY one argument was given
 validate_argument_count() {
   if [ "$1" -ne 1 ]; then
-    echo "usage: turnip-mark <assignment>" >&2
+    echo "usage: turnip-rm <assignment>" >&2
     exit 1
   fi
 }
 
+# checks filename corresponds to the following criteria:
+# "Assignment names must start with a lowercase letter ([a-z]),
+# and be followed only by letters, number and underscore ([a-zA-Z0-9_])"
+# 
+# then checks if assignment exists
 validate_assignment() {
-  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
-    echo "turnip-mark: invalid assignment: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+        echo "turnip-rm: invalid assignment: $1" >&2
+        exit 1
+    fi
 
-  if ! [ -d "./.turnip/$1" ]; then
-    echo "turnip-mark: assignment $1 not found" >&2
-    exit 1
-  fi
+    if ! [ -d "./.turnip/$1" ]; then
+        echo "turnip-rm: assignment $1 not found" >&2
+        exit 1
+    fi
 }
 
+# helper to run checks on given arguments
 validate_arguments() {
     validate_argument_count "$#"
     validate_assignment "$1"
 }
 
-
+# =========================
 # ----- main function -----
+# =========================
 main() {
     validate_arguments "$@"
 
@@ -42,6 +56,7 @@ main() {
     echo "assignment $assignment removed"
 }
 
-
+# ======================
 # ----- run script -----
+# ======================
 main "$@"
