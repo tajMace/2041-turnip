@@ -1,64 +1,78 @@
-#! /usr/bin/env dash
+#!/usr/bin/env dash
 
 # COMP2041 Turnip - turnip-mark command for the turnip assignment program
 # turnip-mark
 #
+# This program was written by Taj Mace (z5691836) <taj.mace@unsw.edu.au>
+# on 21/04/2026
+#
 # Runs the tests supplied to students for an assignment on a program,
 # reporting pass/fail and marks.
 
+# ============================
 # ----- helper functions -----
+# ============================
+
+# checks ONLY one argument was given
 validate_argument_count() {
-  if [ "$1" -ne 1 ]; then
-    echo "usage: turnip-mark <assignment>" >&2
-    exit 1
-  fi
+    if [ "$1" -ne 1 ]; then
+        echo "usage: turnip-mark <assignment>" >&2
+        exit 1
+    fi
 }
 
+# checks filename corresponds to the following criteria:
+# "Assignment names must start with a lowercase letter ([a-z]),
+# and be followed only by letters, number and underscore ([a-zA-Z0-9_])"
+#
+# then checks if the assignment exists
 validate_assignment() {
-  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
-    echo "turnip-mark: invalid assignment: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+        echo "turnip-mark: invalid assignment: $1" >&2
+        exit 1
+    fi
 
-  if ! [ -d "./.turnip/$1" ]; then
-    echo "turnip-mark: assignment $1 not found" >&2
-    exit 1
-  fi
+    if ! [ -d "./.turnip/$1" ]; then
+        echo "turnip-mark: assignment $1 not found" >&2
+        exit 1
+    fi
 }
 
+# helper to run checks on given arguments
 validate_arguments() {
     validate_argument_count "$#"
     validate_assignment "$1"
 }
 
+# checks if a test directory contains a 'marks' file
+# returns 1 if true, or 0 if false
 check_for_marks_file() {
     _test_dir="$1"
+
     if [ -f "$_test_dir/marks" ]; then
         return 0
     fi
+
     return 1
 }
 
-check_for_zid_dir() {
-    _student_path="$1"
-
-    _student_name=$(basename "$_student_path")
-    echo "$_student_name" | grep -qE "^z[0-9]{7}$"
-}
-
+# extracts the original timestamp from the submission storage filename,
+# and converts it to the intended style:
+# eg. "Sat Mar 28 14:17:14 2026"
 extract_original_timestamp() {
-  _timestamp_string=$(echo "$1" | sed -E 's/.*_([0-9]{8}_[0-9]{6})\..*$/\1/')
+    _timestamp_string=$(echo "$1" | sed -E 's/.*_([0-9]{8}_[0-9]{6})\..*$/\1/')
 
-  _year=$(echo "$_timestamp_string" | cut -c1-4)
-  _month=$(echo "$_timestamp_string" | cut -c5-6)
-  _day=$(echo "$_timestamp_string" | cut -c7-8)
-  _hour=$(echo "$_timestamp_string" | cut -c10-11)
-  _min=$(echo "$_timestamp_string" | cut -c12-13)
-  _sec=$(echo "$_timestamp_string" | cut -c14-15)
+    _year=$(echo "$_timestamp_string" | cut -c1-4)
+    _month=$(echo "$_timestamp_string" | cut -c5-6)
+    _day=$(echo "$_timestamp_string" | cut -c7-8)
+    _hour=$(echo "$_timestamp_string" | cut -c10-11)
+    _min=$(echo "$_timestamp_string" | cut -c12-13)
+    _sec=$(echo "$_timestamp_string" | cut -c14-15)
 
-  date -d "$_year-$_month-$_day $_hour:$_min:$_sec" "+%a %b %e %H:%M:%S %Y"
+    date -d "$_year-$_month-$_day $_hour:$_min:$_sec" "+%a %b %e %H:%M:%S %Y"
 }
 
+# prints the header for a student's submission
 print_student_header() {
     _student_dir="$1"
     _latest_sub="$2"
@@ -75,6 +89,7 @@ print_student_header() {
     echo "*** Student $_zid - submission $_sub_number: ${_sub_name}.${_file_ext} $_sub_size bytes @ $_sub_time_string"
 }
 
+# retrieves the filepath of the most recent submission for a student
 get_latest_submission() {
     _submission_dir="$1"
 
@@ -82,8 +97,10 @@ get_latest_submission() {
     find "$_submission_dir" -maxdepth 1 -type f -name "*_${_latest_submission}_????????_??????.*" | head -n1
 }
 
+# retrieves contents of the arguments file if it exists, otherwise returns empty
 get_arguments_from_file() {
     _test_filepath="$1"
+
     if [ -f "$_test_filepath" ]; then
         cat "$_test_filepath"
     else
@@ -91,6 +108,7 @@ get_arguments_from_file() {
     fi
 }
 
+# retrieves contents of the exit_status file if it exists, otherwise defaults to 0
 get_exit_status_from_file() {
     _test_dir="$1"
     if [ -f "$_test_dir/exit_status" ]; then
@@ -100,43 +118,87 @@ get_exit_status_from_file() {
     fi
 }
 
-# Writes src to dst applying options, safely preserving all newlines.
+# applies options to submission stdout for comparison
+# fills new stdout into a temporary destination file
 normalise_for_comparison() {
     _src="$1"
     _options="$2"
     _dst="$3"
 
+    # if no stdout, pipe nothing into destination
     if ! [ -s "$_src" ]; then
         : > "$_dst"
         return
     fi
 
-    # Copy exactly, preserving all bytes including all newlines
+    # copy exactly, preserving all bytes including all newlines
     cp "$_src" "$_dst"
 
+    # option b: "differences regarding empty lines should be ignored"
+    if echo "$_options" | grep -q "b"; then
+        sed '/^[[:space:]]*$/d' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    # option c: "differences in case (uppercase versus lowercase) should be ignored"
     if echo "$_options" | grep -q "c"; then
         tr '[:upper:]' '[:lower:]' < "$_dst" > "$_dst.tmp"
         mv "$_dst.tmp" "$_dst"
     fi
 
-    if echo "$_options" | grep -q "w"; then
-        sed 's/[ \t][ \t]*/ /g; s/^[ \t]*//; s/[ \t]*$//' < "$_dst" > "$_dst.tmp"
-        mv "$_dst.tmp" "$_dst"
-    fi
-
+    # option d: "differences regarding characters other than [0-9] and '\n' should be ignored"
     if echo "$_options" | grep -q "d"; then
         tr -cd '0-9\n' < "$_dst" > "$_dst.tmp"
         mv "$_dst.tmp" "$_dst"
     fi
 
-    if echo "$_options" | grep -q "b"; then
-        sed '/^[[:space:]]*$/d' < "$_dst" > "$_dst.tmp"
+    # option w: "differences in space (' ') and tab ('\t') characters should be ignored"
+    if echo "$_options" | grep -q "w"; then
+        sed 's/[ \t][ \t]*/ /g; s/^[ \t]*//; s/[ \t]*$//' < "$_dst" > "$_dst.tmp"
         mv "$_dst.tmp" "$_dst"
     fi
 }
 
-# Compares actual vs expected output for one stream (stdout or stderr).
-# Prints failure details and returns 1 on failure, 0 on pass.
+# helper function to print a mismatch report with byte counts and newline safety
+# designed for both empty checks and incorrect output
+report_mismatch() {
+    _msg="$1"
+    _file="$2"
+
+    _bytes=$(wc -c < "$_file" | tr -d ' ')
+    echo "--- $_msg $_bytes bytes:"
+    cat "$_file"
+    
+    # if the file doesn't end in a newline, add one for the terminal
+    [ "$(tail -c 1 "$_file" | wc -l)" -eq 0 ] && echo ""
+    echo ""
+}
+
+# helper function to print a mismatch report if newlines don't match
+report_newline_mismatch() {
+    _file_a="$1"
+    _file_b="$2"
+    _message="$3"
+    _stream="$4"
+
+    # create temp file with additional newline at EOF
+    _tmp_plus_nl=$(mktemp)
+    cp "$_file_a" "$_tmp_plus_nl"
+    printf '\n' >> "$_tmp_plus_nl"
+
+    # compare for newline mismatch, printing error if true
+    if cmp -s "$_tmp_plus_nl" "$_file_b"; then
+        echo "$_message newline at end of $_stream"
+        rm -f "$_tmp_plus_nl"
+        return 0
+    fi
+
+    rm -f "$_tmp_plus_nl"
+    return 1    
+}
+
+# compares actual vs expected output for one stream (stdout or stderr)
+# Prints failure details and returns 1 on failure, 0 on pass
 check_stream() {
     _stream="$1"
     _actual="$2"
@@ -149,85 +211,64 @@ check_stream() {
     if ! [ -s "$_expected" ]; then _expected_empty=true; fi
 
     # --- empty failure cases ---
-    if [ "$_actual_empty" = true ] && [ "$_expected_empty" = false ]; then
-        _bytes=$(wc -c < "$_expected" | tr -d ' ')
-        echo "--- No $_stream produced, these $_bytes bytes expected:"
-        cat "$_expected"
-        if [ "$(tail -c 1 "$_expected" | wc -l)" -eq 0 ]; then echo ""; fi
-        echo ""
-        return 1
-    fi
-
-    if [ "$_actual_empty" = false ] && [ "$_expected_empty" = true ]; then
-        _bytes=$(wc -c < "$_actual" | tr -d ' ')
-        echo "--- No $_stream expected, these $_bytes bytes produced:"
-        cat "$_actual"
-        if [ "$(tail -c 1 "$_actual" | wc -l)" -eq 0 ]; then echo ""; fi
-        echo ""
-        return 1
-    fi
-
+    # success case: expected nothing, output nothing
     if [ "$_actual_empty" = true ] && [ "$_expected_empty" = true ]; then
         return 0
     fi
 
-    # --- normalization and exact match check ---
+    # fail case: else, expected something and received nothing
+    if [ "$_actual_empty" = true ]; then
+        report_mismatch "No $_stream produced, expected these" "$_expected"
+        return 1
+    fi
+
+    # fail case: else, expected nothing and received something
+    if [ "$_expected_empty" = true ]; then
+        report_mismatch "No $_stream expected, produced these" "$_actual"
+        return 1
+    fi
+
+    # --- apply options and exact match check ---
     _tmp_actual=$(mktemp)
     _tmp_expected=$(mktemp)
     normalise_for_comparison "$_actual" "$_options" "$_tmp_actual"
     normalise_for_comparison "$_expected" "$_options" "$_tmp_expected"
 
+    # success case: files are the same after applying options
     if cmp -s "$_tmp_actual" "$_tmp_expected"; then
         rm -f "$_tmp_actual" "$_tmp_expected"
         return 0
     fi
 
     # --- newline failure cases ---
-    
-    # "Missing newline" -> Actual + '\n' == Expected
-    _tmp_actual_plus_nl=$(mktemp)
-    cp "$_tmp_actual" "$_tmp_actual_plus_nl"
-    printf '\n' >> "$_tmp_actual_plus_nl"
-    if cmp -s "$_tmp_actual_plus_nl" "$_tmp_expected"; then
-        echo "Missing newline at end of $_stream"
-        rm -f "$_tmp_actual" "$_tmp_expected" "$_tmp_actual_plus_nl"
+    # fail case: missing newline at EOF
+    if report_newline_mismatch "$_tmp_actual" "$_tmp_expected" "Missing" "$_stream"; then
+        rm -f "$_tmp_actual" "$_tmp_expected"
         return 1
     fi
-    rm -f "$_tmp_actual_plus_nl"
 
-    # "Extra newline" -> Expected + '\n' == Actual
-    _tmp_expected_plus_nl=$(mktemp)
-    cp "$_tmp_expected" "$_tmp_expected_plus_nl"
-    printf '\n' >> "$_tmp_expected_plus_nl"
-    if cmp -s "$_tmp_actual" "$_tmp_expected_plus_nl"; then
-        echo "Extra newline at end of $_stream"
-        rm -f "$_tmp_actual" "$_tmp_expected" "$_tmp_expected_plus_nl"
+    # fail case: additional newline at EOF
+    if report_newline_mismatch "$_tmp_expected" "$_tmp_actual" "Extra" "$_stream"; then
+        rm -f "$_tmp_actual" "$_tmp_expected"
         return 1
     fi
-    rm -f "$_tmp_expected_plus_nl"
 
-    # --- genuinely incorrect content ---
+    # output is wrong, no need for temp files anymore
     rm -f "$_tmp_actual" "$_tmp_expected"
 
-    _bytes=$(wc -c < "$_actual" | tr -d ' ')
-    echo "--- Incorrect $_stream of $_bytes bytes:"
-    cat "$_actual"
-    if [ "$(tail -c 1 "$_actual" | wc -l)" -eq 0 ]; then echo ""; fi
-    echo "" # blank line separator
+    # --- incorrect raw output ---
+    report_mismatch "Incorrect $_stream of" "$_actual"
+    report_mismatch "Correct $_stream is these" "$_expected"
 
-    _bytes_expected=$(wc -c < "$_expected" | tr -d ' ')
-    echo "--- Correct $_stream is these $_bytes_expected bytes:"
-    cat "$_expected"
-    if [ "$(tail -c 1 "$_expected" | wc -l)" -eq 0 ]; then echo ""; fi
-    echo "" # REQUIRED BLANK LINE separator after correct stream
-    
     return 1
 }
 
+# executes a single test case
 run_single_test() {
     _test_path="$1"
     _filename="$2"
 
+    # extract metadata from test directory
     test_name=$(basename "$_test_path")
     arguments=$(get_arguments_from_file "$_test_path/arguments")
     options=$(get_arguments_from_file "$_test_path/options")
@@ -236,6 +277,7 @@ run_single_test() {
     tmp_stdout=$(mktemp)
     tmp_stderr=$(mktemp)
 
+    # spellcheck deliberately disabled: word splitting required to parse command-line arguments
     if [ -f "$_test_path/stdin" ]; then
         # shellcheck disable=SC2086
         "$_filename" $arguments < "$_test_path/stdin" >"$tmp_stdout" 2>"$tmp_stderr"
@@ -244,18 +286,22 @@ run_single_test() {
         "$_filename" $arguments >"$tmp_stdout" 2>"$tmp_stderr"
     fi
 
+    # capture exit status
     actual_status=$?
 
     stdout_expected="$_test_path/stdout"
     stderr_expected="$_test_path/stderr"
+
     if ! [ -f "$stdout_expected" ]; then
         stdout_expected="/dev/null"
     fi
+
     if ! [ -f "$stderr_expected" ]; then
         stderr_expected="/dev/null"
     fi
 }
 
+# prints the success message for a passing test
 print_test_success() {
     _test_name="$1"
     _marks="$2"
@@ -263,12 +309,64 @@ print_test_success() {
     echo "* Test $_test_name passed ($_marks marks)."
 }
 
+# prints the failure message for a failing test
+# includes the incorrect stderr, stdout or exit status
 print_test_fail() {
     _test_name="$1"
+    _stdout_log="$2"
+    _stderr_log="$3"
+    _actual_status="$4"
+    _expected_status="$5"
 
     echo "* Test $_test_name failed."
+    
+    # print captured stdout/stderr if they exist
+    [ -f "$_stdout_log" ] && cat "$_stdout_log"
+    [ -f "$_stderr_log" ] && cat "$_stderr_log"
+
+    # print status mismatch if incorrect
+    if [ "$_actual_status" -ne "$_expected_status" ]; then
+        echo "Exit status of $_actual_status incorrect should be $_expected_status"
+    fi
 }
 
+# compares the actual test results (stdout, stderr, status) against expected values
+# returns 0 if all match, else return 1
+compare_test_results() {
+    _tmp_stdout="$1"
+    _stdout_expected="$2"
+    _stdout_output="$3"
+    
+    _tmp_stderr="$4"
+    _stderr_expected="$5"
+    _stderr_output="$6"
+    
+    _actual_status="$7"
+    _expected_status="$8"
+    _options="$9"
+
+    _all_ok=true
+
+    if ! check_stream "stdout" "$_tmp_stdout" "$_stdout_expected" "$_options" >"$_stdout_output" 2>&1; then
+        _all_ok=false
+    fi
+
+    if ! check_stream "stderr" "$_tmp_stderr" "$_stderr_expected" "$_options" >"$_stderr_output" 2>&1; then
+        _all_ok=false
+    fi
+
+    if [ "$_actual_status" -ne "$_expected_status" ]; then
+        _all_ok=false
+    fi
+
+    # comparison finished, remove temp files
+    rm -f "$_tmp_stdout" "$_tmp_stderr"
+
+    [ "$_all_ok" = true ] && return 0
+    return 1
+}
+
+# Processes a test case, checking stdout, stderr, and exit status.
 process_test() {
     _test_path="$1"
     _submission="$2"
@@ -283,35 +381,21 @@ process_test() {
     _stdout_output=$(mktemp)
     _stderr_output=$(mktemp)
 
-    if ! check_stream "stdout" "$tmp_stdout" "$stdout_expected" "$options" >"$_stdout_output" 2>&1; then
-        _stdout_ok=false
-    fi
-    if ! check_stream "stderr" "$tmp_stderr" "$stderr_expected" "$options" >"$_stderr_output" 2>&1; then
-        _stderr_ok=false
-    fi
-
-    if [ "$actual_status" -ne "$expected_status" ]; then
-        _status_ok=false
-    fi
-
-    rm "$tmp_stdout" "$tmp_stderr"
-
-    if [ "$_stdout_ok" = true ] && [ "$_stderr_ok" = true ] && [ "$_status_ok" = true ]; then
+    if compare_test_results "$tmp_stdout" "$stdout_expected" "$_stdout_output" \
+                            "$tmp_stderr" "$stderr_expected" "$_stderr_output" \
+                            "$actual_status" "$expected_status" "$options"; then
         print_test_success "$test_name" "$_test_mark"
-        rm "$_stdout_output" "$_stderr_output"
         test_result="$_test_mark"
     else
-        print_test_fail "$test_name"
-        cat "$_stdout_output"
-        cat "$_stderr_output"
-        if [ "$_status_ok" = false ]; then
-            echo "Exit status of $actual_status incorrect should be $expected_status"
-        fi
-        rm "$_stdout_output" "$_stderr_output"
+        print_test_fail "$test_name" "$_stdout_output" "$_stderr_output" \
+                        "$actual_status" "$expected_status"
         test_result=0
     fi
+    
+    rm "$_stdout_output" "$_stderr_output"
 }
 
+# updates the running tally of passed/failed tests and marks
 sum_result() {
     _result="$1"
 
@@ -324,6 +408,7 @@ sum_result() {
     mark_sum=$((mark_sum + _result))
 }
 
+# prints the final mark summary for a student
 print_student_footer() {
     _pass_count="$1"
     _fail_count="$2"
@@ -333,7 +418,9 @@ print_student_footer() {
     echo "** $_pass_count tests passed, $_fail_count tests failed - mark: $_mark_sum/$_max_marks"
 }
 
+# =========================
 # ----- main function -----
+# =========================
 main() {
     validate_arguments "$@"
 
@@ -345,7 +432,7 @@ main() {
         if ! [ -d "$student" ]; then
             continue
         fi
-        check_for_zid_dir "$student" || continue
+        
         pass_count=0
         fail_count=0
         mark_sum=0
@@ -370,5 +457,7 @@ main() {
     done
 }
 
+# ======================
 # ----- run script -----
+# ======================
 main "$@"
