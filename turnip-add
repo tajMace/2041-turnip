@@ -46,15 +46,25 @@ validate_arguments() {
     check_for_existing_assignment "$1"
 }
 
-# checks given filepath contains a tar to extract
+# checks filename corresponds to the following criteria:
+# "The pathname should only contain letters ([a-zA-Z]), numbers ([0-9]), 
+# underscore ('_'), dash ('-'), dot ('.') and slash ('/')."
+#
+# then checks if a file exists at the given path
+# then checks if file is a valid tar file
 validate_tests_filepath() {
     if ! echo "$1" | grep -qE '^[a-zA-Z0-9_./-]+$'; then
         echo "turnip-add: invalid tests: $1" >&2
         exit 1
     fi
-     
+
     if ! [ -f "$1" ]; then
         echo "turnip-add: $1: No such file or directory" >&2
+        exit 1
+    fi
+
+    if ! echo "$1" | grep -qE '.+\.tar$'; then
+        echo "turnip-add: $1: not a valid tar file" >&2
         exit 1
     fi
 }
