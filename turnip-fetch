@@ -8,8 +8,11 @@
 #
 # turnip-fetch outputs the contents of a submission the student has made.
 
-
+# ============================
 # ----- helper functions -----
+# ============================
+
+# checks if ONLY (two OR three) arguments were given
 validate_argument_count() {
   if [ "$1" -ne 2 ] && [ "$1" -ne 3 ]; then
     echo "usage: turnip-fetch <assignment> <zid> [n]" >&2
@@ -17,6 +20,11 @@ validate_argument_count() {
   fi
 }
 
+# checks filename corresponds to the following criteria:
+# "Assignment names must start with a lowercase letter ([a-z]),
+# and be followed only by letters, number and underscore ([a-zA-Z0-9_])"
+# 
+# then checks if assignment exists
 validate_assignment() {
   if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
     echo "turnip-fetch: invalid assignment: $1" >&2
@@ -29,6 +37,8 @@ validate_assignment() {
   fi
 }
 
+# checks if the zID corresponds to the following criteria:
+# "A student zid should be a 'z' followed by 7 digits."
 validate_zid() {
   if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
     echo "turnip-fetch: invalid zid: $1" >&2
@@ -36,6 +46,7 @@ validate_zid() {
   fi
 }
 
+# checks that the offset is an integer, either positive or negative
 validate_offset() {
     if ! echo "$1" | grep -qE '^-?[0-9]+$'; then
         echo "usage: turnip-fetch <assignment> <zid> [n]" >&2
@@ -43,6 +54,8 @@ validate_offset() {
     fi
 }
 
+# helper to run checks on given arguments
+# only runs offset check if given 3 arguments
 validate_arguments() {
     validate_argument_count "$#"
     validate_assignment "$1"
@@ -53,6 +66,7 @@ validate_arguments() {
     fi
 }
 
+# converts an offset to an absolute submission number
 offset_to_absolute_submission() {
     submission_dir="$1"
     offset="$2"
@@ -62,6 +76,8 @@ offset_to_absolute_submission() {
     echo $((num_submissions + offset))
 }
 
+# converts a submission number (either absolute or offset) to an absolute submission number
+# if no argument was given, defaults to the latest submission (offset 0)
 get_absolute_submission_number() {
     submission_dir="$1"
     submission_number="$2"
@@ -77,6 +93,7 @@ get_absolute_submission_number() {
     echo "$absolute_submission"
 }
 
+# given a submission directory and a submission number, returns the filepath of the submission
 get_submission_filepath() {
     submission_dir="$1"
     submission_number="$2"
@@ -84,19 +101,21 @@ get_submission_filepath() {
     find "$submission_dir" -maxdepth 1 -type f -name "*_${submission_number}_????????_??????.*" | head -n1
 }
 
+# checks if a submission exists for the given assignment, zid and submission number
 validate_filepath() {
     filepath="$1"
     assignment_name="$2"
     submission_number="$3"
 
-    if [ ! -e "$filepath" ] || [ -z "$filepath" ]; then
+    if [ -z "$filepath" ] || [ ! -e "$filepath" ]; then
         echo "turnip-fetch: submission $submission_number not found for $assignment_name" >&2
         exit 1
     fi
 }
 
-
+# =======================
 # ----- main script -----
+# =======================
 main() {
     validate_arguments "$@"
     
@@ -112,5 +131,7 @@ main() {
     cat "$filepath"
 }
 
+# ======================
 # ----- run script -----
+# ======================
 main "$@"
