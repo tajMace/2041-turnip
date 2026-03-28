@@ -1,4 +1,4 @@
-#! /usr/bin/env dash
+#!/usr/bin/env dash
 
 # COMP2041 Turnip - turnip-submit command for the turnip assignment program
 # turnip-submit.sh
@@ -8,120 +8,159 @@
 #
 # This command makes a submission for the assignment by a student.
 
+# ============================
 # ----- helper functions -----
+# ============================
+
+# checks ONLY three arguments were given.
 validate_argument_count() {
-  if [ "$1" -ne 3 ]; then
-    echo "usage: turnip-submit <assignment> <zid> <filename>" >&2
-    exit 1
-  fi
+    if [ "$1" -ne 3 ]; then
+        echo "usage: turnip-submit <assignment> <zid> <filename>" >&2
+        exit 1
+    fi
 }
 
+# checks filename corresponds to the following criteria:
+# "Assignment names must start with a lowercase letter ([a-z]),
+# and be followed only by letters, number and underscore ([a-zA-Z0-9_])"
+#
+# then checks if the assignment exists
 validate_assignment() {
-  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
-    echo "turnip-submit: invalid assignment: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+        echo "turnip-submit: invalid assignment: $1" >&2
+        exit 1
+    fi
 
-  if ! [ -d "./.turnip/$1" ]; then
-    echo "turnip-submit: assignment $1 not found" >&2
-    exit 1
-  fi
+    if ! [ -d "./.turnip/$1" ]; then
+        echo "turnip-submit: assignment $1 not found" >&2
+        exit 1
+    fi
 }
 
+# checks if the zID corresponds to the following criteria:
+# "A student zid should be a 'z' followed by 7 digits."
 validate_zid() {
-  if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
-    echo "turnip-submit: invalid zid: $1" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
+        echo "turnip-submit: invalid zid: $1" >&2
+        exit 1
+    fi
 }
 
+# checks filename corresponds to the following criteria:
+# "The pathname should only contain letters ([a-zA-Z]), numbers ([0-9]), 
+# underscore ('_'), dash ('-'), dot ('.') and slash ('/')."
+#
+# then checks if a file exists at the given path
 validate_tests_filepath() {
-  if ! [ -f "$1" ]; then
-    echo "turnip-submit: $1: No such file or directory" >&2
-    exit 1
-  fi
+    if ! echo "$1" | grep -qE '^[a-zA-Z0-9_./-]+$'; then
+        echo "turnip-add: invalid filename: $1" >&2
+        exit 1
+    fi
+
+    if ! [ -f "$1" ]; then
+        echo "turnip-submit: $1: No such file or directory" >&2
+        exit 1
+    fi
 }
 
+# helper to run checks on given arguments.
 validate_arguments() {
-  validate_argument_count "$#"
-  validate_assignment "$1"
-  validate_zid "$2"
-  validate_tests_filepath "$3"
+    validate_argument_count "$#"
+    validate_assignment "$1"
+    validate_zid "$2"
+    validate_tests_filepath "$3"
 }
 
+# determines the next submission number for a given student directory.
 next_submission_number() {
-  DIR="$1"
+    student_dir="$1"
 
-  files=$(ls "$DIR" 2>/dev/null || true)
-  if [ -z "$files" ]; then
-    echo 1
-  else
-    latest_num=$(printf "%s\n" "$files" | sed -E 's/.*_([0-9]+)_[0-9]{8}_[0-9]{6}\..*/\1/' | sort -n | tail -n1)
-    next_num=$((latest_num + 1))
+    files=$(ls "$student_dir" 2>/dev/null || true)
+    if [ -z "$files" ]; then
+        echo 1
+    else
+        latest_num=$(printf "%s\n" "$files" | sed -E 's/.*_([0-9]+)_[0-9]{8}_[0-9]{6}\..*/\1/' | sort -n | tail -n1)
+        next_num=$((latest_num + 1))
 
-    echo "$next_num"
-  fi
+        echo "$next_num"
+    fi
 }
 
+# generates a timestamp string, respecting the FAKETIME environment variable.
 get_timestamp_string() {
-  FAKETIME="$1"
+    FAKETIME="$1"
 
-  if [ -n "$FAKETIME" ]; then
-    date -d "$FAKETIME" "+%Y%m%d_%H%M%S"
-  else
-    date "+%Y%m%d_%H%M%S"
-  fi
+    if [ -n "$FAKETIME" ]; then
+        date -d "$FAKETIME" "+%Y%m%d_%H%M%S"
+    else
+        date "+%Y%m%d_%H%M%S"
+    fi
 }
 
+# formats a raw timestamp string into the required readable format.
 get_formatted_timestamp() {
-  ts="$1"
+    ts="$1"
 
-  year=$(echo "$ts" | cut -c1-4)
-  month=$(echo "$ts" | cut -c5-6)
-  day=$(echo "$ts" | cut -c7-8)
-  hour=$(echo "$ts" | cut -c10-11)
-  min=$(echo "$ts" | cut -c12-13)
-  sec=$(echo "$ts" | cut -c14-15)
+    year=$(echo "$ts" | cut -c1-4)
+    month=$(echo "$ts" | cut -c5-6)
+    day=$(echo "$ts" | cut -c7-8)
+    hour=$(echo "$ts" | cut -c10-11)
+    min=$(echo "$ts" | cut -c12-13)
+    sec=$(echo "$ts" | cut -c14-15)
 
-  date -d "$year-$month-$day $hour:$min:$sec" "+%a %b %e %H:%M:%S %Y"
+    date -d "$year-$month-$day $hour:$min:$sec" "+%a %b %e %H:%M:%S %Y"
 }
 
+# generates the new filename for storing the submission in the following style:
+# <submission_name>_<submission_number>_<timestamp>.<file_extension>
 generate_storage_filename() {
-  file_name="$1"
-  next_num="$2"
-  ts="$3"
+    file_name="$1"
+    next_num="$2"
+    ts="$3"
 
-  file_base="${file_name%.*}"
-  file_ext="${file_name##*.}"
+    file_base="${file_name%.*}"
+    file_ext="${file_name##*.}"
 
-  filename_new="${file_base}_${next_num}_${ts}.${file_ext}"
-  echo "$filename_new"
+    filename_new="${file_base}_${next_num}_${ts}.${file_ext}"
+    echo "$filename_new"
 }
 
-# ----- main script -----
+# extracts metadata for storage filename, moves file, and prints summary
+process_submission() {
+    assignment="$1"
+    zid="$2"
+    filepath="$3"
+
+    student_dir="./.turnip/$assignment/$zid"
+    mkdir -p "$student_dir"
+
+    # get filename metadata
+    file_name=$(basename "$filepath")
+    next_num=$(next_submission_number "$student_dir")
+    ts=$(get_timestamp_string "$FAKETIME")
+
+    filename_new=$(generate_storage_filename "$file_name" "$next_num" "$ts")
+
+    # move submission from given path to storage
+    cp -p "$filepath" "$student_dir/$filename_new"
+  
+    # get additional metadata for print summary
+    file_size=$(wc -c <"$student_dir/$filename_new")
+    readable_ts=$(get_formatted_timestamp "$ts")
+
+    echo "Submission accepted - submission $next_num: $file_name $file_size bytes @ $readable_ts"
+}
+
+# =========================
+# ----- main function -----
+# =========================
 main() {
-  validate_arguments "$@"
-  
-  assignment="$1"
-  zid="$2"
-  filepath="$3"
+    validate_arguments "$@"
 
-  DIR="./.turnip/$assignment/$zid"
-  mkdir -p "$DIR"
-
-  file_name=$(basename "$filepath")
-  next_num=$(next_submission_number "$DIR")
-  ts=$(get_timestamp_string "$FAKETIME")
-
-  filename_new=$(generate_storage_filename "$file_name" "$next_num" "$ts")
-
-  cp -p "$filepath" "$DIR/$filename_new"
-  
-  file_size=$(wc -c <"$DIR/$filename_new")
-  readable_ts=$(get_formatted_timestamp "$ts")
-
-  echo "Submission accepted - submission $next_num: $file_name $file_size bytes @ $readable_ts"
+    process_submission "$@"
 }
 
+# ======================
 # ----- run script -----
+# ======================
 main "$@"
