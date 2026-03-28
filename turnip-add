@@ -34,8 +34,8 @@ validate_assignment_name() {
 # check for duplicate name
 check_for_existing_assignment() {
     if [ -d ".turnip/$1" ]; then
-	echo "turnip-add: assignment $1 already exists" >&2
-	exit 1
+	    echo "turnip-add: assignment $1 already exists" >&2
+	    exit 1
     fi
 }
 
