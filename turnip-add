@@ -9,7 +9,11 @@
 # This command creates a new Turnip assignment
 # It also created a new .turnip directory if it doesn't exist.
 
+# ============================
 # ----- helper functions -----
+# ============================
+
+# checks ONLY two arguments were given
 validate_argument_count() {
     if [ "$1" -ne 2 ]; then
         echo "usage: turnip-add <assignment> <tests>" >&2
@@ -17,6 +21,9 @@ validate_argument_count() {
     fi
 }
 
+# checks filename corresponds to the following criteria:
+# "Assignment names must start with a lowercase letter ([a-z]),
+# and be followed only by letters, number and underscore ([a-zA-Z0-9_])"
 validate_assignment_name() {
     if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
         echo "turnip-add: invalid assignment: $1" >&2
@@ -24,13 +31,7 @@ validate_assignment_name() {
     fi
 }
 
-validate_tests_filepath() {
-    if ! [ -f "$1" ]; then
-        echo "turnip-add: $1: No such file or directory" >&2
-        exit 1
-    fi
-}
-
+# check for duplicate name
 check_for_existing_assignment() {
     if [ -d ".turnip/$1" ]; then
 	echo "turnip-add: assignment $1 already exists" >&2
@@ -38,10 +39,29 @@ check_for_existing_assignment() {
     fi
 }
 
-# ----- main script -----
-main() {
+# helper to run checks on given arguments
+validate_arguments() {
     validate_argument_count "$#"
     validate_assignment_name "$1"
+    check_for_existing_assignment "$1"
+}
+
+# checks given filepath contains a tar to extract
+validate_tests_filepath() {
+    if ! [ -f "$1" ]; then
+        echo "turnip-add: $1: No such file or directory" >&2
+        exit 1
+    fi
+}
+
+# ========================
+# ----- main script -----
+# ========================
+main() {
+    validate_arguments "$@"
+
+    assignment_name="$1"
+    tests_filepath="$2"
 
     # create .turnip if needed
     if [ ! -d ".turnip" ]; then
@@ -49,19 +69,18 @@ main() {
         echo "directory .turnip created"
     fi
 
-    check_for_existing_assignment "$1"
-    validate_tests_filepath "$2"
-
-    DIR="./.turnip/$1/tests"
-    mkdir -p "$DIR"
+    validate_tests_filepath "$tests_filepath"
+    tests_dir="./.turnip/$assignment_name/tests"
+    mkdir -p "$tests_dir"
 
     # extract files from given path to new directory
-    tar --extract --file="$2" --directory="$DIR"
-
-    echo "assignment $1 created"
+    tar --extract --file="$tests_filepath" --directory="$tests_dir"
+    echo "assignment $assignment_name created"
 }
 
+# ======================
 # ----- run script -----
+# ======================
 main "$@"
 
 
