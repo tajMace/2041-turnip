@@ -1,0 +1,109 @@
+#! /usr/bin/env dash
+
+# COMP2041 Turnip - turnip-status command for the turnip assignment program
+# turnip-status
+#
+# This program was written by Taj Mace (z5691836) <taj.mace@unsw.edu.au>
+# on 21/04/2026
+#
+# turnip-status lists all submissions a student has made.
+
+# ----- helper functions -----
+validate_argument_count() {
+  if [ "$1" -ne 1 ]; then
+    echo "usage: turnip-status <zid>" >&2
+    exit 1
+  fi
+}
+
+validate_zid() {
+  if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
+    echo "turnip-status: invalid zid: $1" >&2
+    exit 1
+  fi
+}
+
+validate_student_directory() {
+  if [ ! -d "$1" ]; then
+    echo "no submissions for $2"
+    return 1
+  fi
+}
+
+print_submission_number() {
+  num_submissions=$(ls -1 "$1" 2>/dev/null | wc -l)
+  echo "* $num_submissions submissions for $(basename "$2")"
+}
+
+get_sorted_files() {
+  student_dir="$1"
+  for f in "$student_dir"/*; do
+      [ -e "$f" ] || continue
+      echo "$f"
+  done | sort -t_ -k3,3 -k4,4
+}
+
+extract_original_name() {
+  full="$1"
+  
+  name=${full%.*}
+  ext=${full##*.}
+  base=$(echo "$name" | sed -E 's/(.*)_[0-9]+_[0-9]{8}_[0-9]{6}$/\1/')
+
+  echo "$base.$ext"
+}
+
+extract_original_timestamp() {
+  timestamp_string=$(echo "$1" | sed -E 's/.*_([0-9]{8}_[0-9]{6})\..*$/\1/')
+
+  year=$(echo "$timestamp_string" | cut -c1-4)
+  month=$(echo "$timestamp_string" | cut -c5-6)
+  day=$(echo "$timestamp_string" | cut -c7-8)
+  hour=$(echo "$timestamp_string" | cut -c10-11)
+  min=$(echo "$timestamp_string" | cut -c12-13)
+  sec=$(echo "$timestamp_string" | cut -c14-15)
+
+  # return timestamp in intended style
+  date -d "$year-$month-$day $hour:$min:$sec" "+%a %b %e %H:%M:%S %Y"
+}
+
+print_submission_summary() {
+  file="$1"
+  count="$2"
+
+  base_filename=$(basename "$file")
+  file_name=$(extract_original_name "$base_filename")
+  file_ts=$(extract_original_timestamp "$base_filename")
+  file_size=$(wc -c <"$file")
+
+  echo "submission $count: $file_name $file_size bytes @ $file_ts"
+}
+
+# ----- main script -----
+main() {
+  zid="$1"
+
+  validate_argument_count "$#"
+  validate_zid "$zid"
+
+  DIR="./.turnip"
+  for assignment in "$DIR"/*; do
+    [ -d "$assignment" ] || continue
+
+    student_dir="$assignment/$zid"
+    validate_student_directory "$student_dir" "$zid" || continue
+    print_submission_number "$student_dir" "$assignment"
+
+    count=1
+    files=$(get_sorted_files "$student_dir")
+    for file in $files; do
+        [ -e "$file" ] || continue
+
+        print_submission_summary "$file" "$count"
+        count=$((count + 1))
+    done
+  done
+}
+
+# ----- run script -----
+main "$@"

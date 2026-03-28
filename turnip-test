@@ -1,0 +1,290 @@
+#! /usr/bin/env dash
+
+# COMP2041 Turnip - turnip-test command for the turnip assignment program
+# turnip-test
+#
+# turnip-test runs the tests supplied to students for an assignment on a program.
+
+# ----- helper functions -----
+validate_argument_count() {
+  if [ "$1" -ne 2 ]; then
+    echo "usage: turnip-test <assignment> <filename>" >&2
+    exit 1
+  fi
+}
+
+validate_assignment() {
+  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+    echo "turnip-test: invalid assignment: $1" >&2
+    exit 1
+  fi
+
+  if ! [ -d "./.turnip/$1" ]; then
+    echo "turnip-test: assignment $1 not found" >&2
+    exit 1
+  fi
+}
+
+validate_target_file() {
+  if ! [ -f "$1" ]; then
+    echo "turnip-test: $1: No such file or directory" >&2
+    exit 1
+  fi
+}
+
+validate_arguments() {
+    validate_argument_count "$#"
+    validate_assignment "$1"
+    validate_target_file "$2"
+}
+
+check_for_marks_file() {
+    _test_dir="$1"
+    if [ -f "$_test_dir/marks" ]; then
+        return 1
+    fi
+    return 0
+}
+
+get_arguments_from_file() {
+    _test_filepath="$1"
+    if [ -f "$_test_filepath" ]; then
+        cat "$_test_filepath"
+    else
+        echo ""
+    fi
+}
+
+get_exit_status_from_file() {
+    _test_dir="$1"
+    if [ -f "$_test_dir/exit_status" ]; then
+        cat "$_test_dir/exit_status"
+    else
+        echo "0"
+    fi
+}
+
+# Writes src to dst applying options, safely preserving all newlines.
+normalise_for_comparison() {
+    _src="$1"
+    _options="$2"
+    _dst="$3"
+
+    if ! [ -s "$_src" ]; then
+        : > "$_dst"
+        return
+    fi
+
+    # Copy exactly, preserving all bytes including all newlines
+    cp "$_src" "$_dst"
+
+    if echo "$_options" | grep -q "c"; then
+        tr '[:upper:]' '[:lower:]' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    if echo "$_options" | grep -q "w"; then
+        sed 's/[ \t][ \t]*/ /g; s/^[ \t]*//; s/[ \t]*$//' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    if echo "$_options" | grep -q "d"; then
+        tr -cd '0-9\n' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    if echo "$_options" | grep -q "b"; then
+        sed '/^[[:space:]]*$/d' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+}
+
+# Compares actual vs expected output for one stream (stdout or stderr).
+# Prints failure details and returns 1 on failure, 0 on pass.
+check_stream() {
+    _stream="$1"
+    _actual="$2"
+    _expected="$3"
+    _options="$4"
+
+    _actual_empty=false
+    _expected_empty=false
+    if ! [ -s "$_actual" ]; then _actual_empty=true; fi
+    if ! [ -s "$_expected" ]; then _expected_empty=true; fi
+
+    # --- empty failure cases ---
+    if [ "$_actual_empty" = true ] && [ "$_expected_empty" = false ]; then
+        _bytes=$(wc -c < "$_expected" | tr -d ' ')
+        echo "--- No $_stream produced, these $_bytes bytes expected:"
+        cat "$_expected"
+        if [ "$(tail -c 1 "$_expected" | wc -l)" -eq 0 ]; then echo ""; fi
+        echo ""
+        return 1
+    fi
+
+    if [ "$_actual_empty" = false ] && [ "$_expected_empty" = true ]; then
+        _bytes=$(wc -c < "$_actual" | tr -d ' ')
+        echo "--- No $_stream expected, these $_bytes bytes produced:"
+        cat "$_actual"
+        if [ "$(tail -c 1 "$_actual" | wc -l)" -eq 0 ]; then echo ""; fi
+        echo ""
+        return 1
+    fi
+
+    if [ "$_actual_empty" = true ] && [ "$_expected_empty" = true ]; then
+        return 0
+    fi
+
+    # --- normalization and exact match check ---
+    _tmp_actual=$(mktemp)
+    _tmp_expected=$(mktemp)
+    normalise_for_comparison "$_actual" "$_options" "$_tmp_actual"
+    normalise_for_comparison "$_expected" "$_options" "$_tmp_expected"
+
+    if cmp -s "$_tmp_actual" "$_tmp_expected"; then
+        rm -f "$_tmp_actual" "$_tmp_expected"
+        return 0
+    fi
+
+    # --- newline failure cases ---
+    
+    # "Missing newline" -> Actual + '\n' == Expected
+    _tmp_actual_plus_nl=$(mktemp)
+    cp "$_tmp_actual" "$_tmp_actual_plus_nl"
+    printf '\n' >> "$_tmp_actual_plus_nl"
+    if cmp -s "$_tmp_actual_plus_nl" "$_tmp_expected"; then
+        echo "Missing newline at end of $_stream"
+        rm -f "$_tmp_actual" "$_tmp_expected" "$_tmp_actual_plus_nl"
+        return 1
+    fi
+    rm -f "$_tmp_actual_plus_nl"
+
+    # "Extra newline" -> Expected + '\n' == Actual
+    _tmp_expected_plus_nl=$(mktemp)
+    cp "$_tmp_expected" "$_tmp_expected_plus_nl"
+    printf '\n' >> "$_tmp_expected_plus_nl"
+    if cmp -s "$_tmp_actual" "$_tmp_expected_plus_nl"; then
+        echo "Extra newline at end of $_stream"
+        rm -f "$_tmp_actual" "$_tmp_expected" "$_tmp_expected_plus_nl"
+        return 1
+    fi
+    rm -f "$_tmp_expected_plus_nl"
+
+    # --- genuinely incorrect content ---
+    rm -f "$_tmp_actual" "$_tmp_expected"
+
+    _bytes=$(wc -c < "$_actual" | tr -d ' ')
+    echo "--- Incorrect $_stream of $_bytes bytes:"
+    cat "$_actual"
+    if [ "$(tail -c 1 "$_actual" | wc -l)" -eq 0 ]; then echo ""; fi
+    echo "" # blank line separator
+
+    _bytes_expected=$(wc -c < "$_expected" | tr -d ' ')
+    echo "--- Correct $_stream is these $_bytes_expected bytes:"
+    cat "$_expected"
+    if [ "$(tail -c 1 "$_expected" | wc -l)" -eq 0 ]; then echo ""; fi
+    echo "" # REQUIRED BLANK line separator after expected stream
+    
+    return 1
+}
+
+# ----- test execution -----
+run_single_test() {
+    _test_path="$1"
+    _filename="$2"
+
+    test_name=$(basename "$_test_path")
+    arguments=$(get_arguments_from_file "$_test_path/arguments")
+    options=$(get_arguments_from_file "$_test_path/options")
+    expected_status=$(get_exit_status_from_file "$_test_path")
+
+    tmp_stdout=$(mktemp)
+    tmp_stderr=$(mktemp)
+
+    if [ -f "$_test_path/stdin" ]; then
+        # shellcheck disable=SC2086
+        "./$_filename" $arguments < "$_test_path/stdin" >"$tmp_stdout" 2>"$tmp_stderr"
+    else
+        # shellcheck disable=SC2086
+        "./$_filename" $arguments >"$tmp_stdout" 2>"$tmp_stderr"
+    fi
+
+    actual_status=$?
+
+    stdout_expected="$_test_path/stdout"
+    stderr_expected="$_test_path/stderr"
+    if ! [ -f "$stdout_expected" ]; then
+        stdout_expected="/dev/null"
+    fi
+    if ! [ -f "$stderr_expected" ]; then
+        stderr_expected="/dev/null"
+    fi
+}
+
+process_test() {
+    _test_path="$1"
+    _filename="$2"
+
+    run_single_test "$_test_path" "$_filename"
+
+    _stdout_ok=true
+    _stderr_ok=true
+    _status_ok=true
+
+    _stdout_output=$(mktemp)
+    _stderr_output=$(mktemp)
+
+    if ! check_stream "stdout" "$tmp_stdout" "$stdout_expected" "$options" >"$_stdout_output" 2>&1; then
+        _stdout_ok=false
+    fi
+    if ! check_stream "stderr" "$tmp_stderr" "$stderr_expected" "$options" >"$_stderr_output" 2>&1; then
+        _stderr_ok=false
+    fi
+
+    if [ "$actual_status" -ne "$expected_status" ]; then
+        _status_ok=false
+    fi
+
+    rm -f "$tmp_stdout" "$tmp_stderr"
+
+    if [ "$_stdout_ok" = true ] && [ "$_stderr_ok" = true ] && [ "$_status_ok" = true ]; then
+        echo "* Test $test_name passed."
+        pass_count=$((pass_count + 1))
+        rm -f "$_stdout_output" "$_stderr_output"
+    else
+        echo "* Test $test_name failed."
+        cat "$_stdout_output"
+        cat "$_stderr_output"
+        if [ "$_status_ok" = false ]; then
+            echo "Exit status of $actual_status incorrect should be $expected_status"
+        fi
+        fail_count=$((fail_count + 1))
+        rm -f "$_stdout_output" "$_stderr_output"
+    fi
+}
+
+# ----- main script -----
+main() {
+    validate_arguments "$@"
+
+    assignment="$1"
+    filename="$2"
+    test_dir="./.turnip/$assignment/tests"
+
+    pass_count=0
+    fail_count=0
+
+    for test_name in $(ls "$test_dir" | sort); do
+        test_path="$test_dir/$test_name"
+        if ! [ -d "$test_path" ]; then
+            continue
+        fi
+        check_for_marks_file "$test_path" || continue
+        process_test "$test_path" "$filename"
+    done
+
+    echo "** $pass_count tests passed, $fail_count tests failed"
+}
+
+# ----- run script -----
+main "$@"

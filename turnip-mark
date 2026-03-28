@@ -1,0 +1,374 @@
+#! /usr/bin/env dash
+
+# COMP2041 Turnip - turnip-mark command for the turnip assignment program
+# turnip-mark
+#
+# Runs the tests supplied to students for an assignment on a program,
+# reporting pass/fail and marks.
+
+# ----- helper functions -----
+validate_argument_count() {
+  if [ "$1" -ne 1 ]; then
+    echo "usage: turnip-mark <assignment>" >&2
+    exit 1
+  fi
+}
+
+validate_assignment() {
+  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+    echo "turnip-mark: invalid assignment: $1" >&2
+    exit 1
+  fi
+
+  if ! [ -d "./.turnip/$1" ]; then
+    echo "turnip-mark: assignment $1 not found" >&2
+    exit 1
+  fi
+}
+
+validate_arguments() {
+    validate_argument_count "$#"
+    validate_assignment "$1"
+}
+
+check_for_marks_file() {
+    _test_dir="$1"
+    if [ -f "$_test_dir/marks" ]; then
+        return 0
+    fi
+    return 1
+}
+
+check_for_zid_dir() {
+    _student_path="$1"
+
+    _student_name=$(basename "$_student_path")
+    echo "$_student_name" | grep -qE "^z[0-9]{7}$"
+}
+
+extract_original_timestamp() {
+  _timestamp_string=$(echo "$1" | sed -E 's/.*_([0-9]{8}_[0-9]{6})\..*$/\1/')
+
+  _year=$(echo "$_timestamp_string" | cut -c1-4)
+  _month=$(echo "$_timestamp_string" | cut -c5-6)
+  _day=$(echo "$_timestamp_string" | cut -c7-8)
+  _hour=$(echo "$_timestamp_string" | cut -c10-11)
+  _min=$(echo "$_timestamp_string" | cut -c12-13)
+  _sec=$(echo "$_timestamp_string" | cut -c14-15)
+
+  date -d "$_year-$_month-$_day $_hour:$_min:$_sec" "+%a %b %e %H:%M:%S %Y"
+}
+
+print_student_header() {
+    _student_dir="$1"
+    _latest_sub="$2"
+
+    _zid=$(basename "$_student_dir")
+    _filename=$(basename "$_latest_sub")
+
+    _sub_number=$(echo "$_filename" | sed -E 's/^.*_([0-9]+)_[0-9]{8}_[0-9]{6}\..*$/\1/')
+    _sub_name=$(echo "$_filename" | sed -E 's/^(.+)_([0-9]+)_[0-9]{8}_[0-9]{6}\..*$/\1/')
+    _file_ext="${_filename##*.}"
+    _sub_size=$(wc -c < "$_latest_sub")
+    _sub_time_string=$(extract_original_timestamp "$_latest_sub")
+
+    echo "*** Student $_zid - submission $_sub_number: ${_sub_name}.${_file_ext} $_sub_size bytes @ $_sub_time_string"
+}
+
+get_latest_submission() {
+    _submission_dir="$1"
+
+    _latest_submission=$(find "$_submission_dir" -maxdepth 1 -type f | wc -l)
+    find "$_submission_dir" -maxdepth 1 -type f -name "*_${_latest_submission}_????????_??????.*" | head -n1
+}
+
+get_arguments_from_file() {
+    _test_filepath="$1"
+    if [ -f "$_test_filepath" ]; then
+        cat "$_test_filepath"
+    else
+        echo ""
+    fi
+}
+
+get_exit_status_from_file() {
+    _test_dir="$1"
+    if [ -f "$_test_dir/exit_status" ]; then
+        cat "$_test_dir/exit_status"
+    else
+        echo "0"
+    fi
+}
+
+# Writes src to dst applying options, safely preserving all newlines.
+normalise_for_comparison() {
+    _src="$1"
+    _options="$2"
+    _dst="$3"
+
+    if ! [ -s "$_src" ]; then
+        : > "$_dst"
+        return
+    fi
+
+    # Copy exactly, preserving all bytes including all newlines
+    cp "$_src" "$_dst"
+
+    if echo "$_options" | grep -q "c"; then
+        tr '[:upper:]' '[:lower:]' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    if echo "$_options" | grep -q "w"; then
+        sed 's/[ \t][ \t]*/ /g; s/^[ \t]*//; s/[ \t]*$//' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    if echo "$_options" | grep -q "d"; then
+        tr -cd '0-9\n' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+
+    if echo "$_options" | grep -q "b"; then
+        sed '/^[[:space:]]*$/d' < "$_dst" > "$_dst.tmp"
+        mv "$_dst.tmp" "$_dst"
+    fi
+}
+
+# Compares actual vs expected output for one stream (stdout or stderr).
+# Prints failure details and returns 1 on failure, 0 on pass.
+check_stream() {
+    _stream="$1"
+    _actual="$2"
+    _expected="$3"
+    _options="$4"
+
+    _actual_empty=false
+    _expected_empty=false
+    if ! [ -s "$_actual" ]; then _actual_empty=true; fi
+    if ! [ -s "$_expected" ]; then _expected_empty=true; fi
+
+    # --- empty failure cases ---
+    if [ "$_actual_empty" = true ] && [ "$_expected_empty" = false ]; then
+        _bytes=$(wc -c < "$_expected" | tr -d ' ')
+        echo "--- No $_stream produced, these $_bytes bytes expected:"
+        cat "$_expected"
+        if [ "$(tail -c 1 "$_expected" | wc -l)" -eq 0 ]; then echo ""; fi
+        echo ""
+        return 1
+    fi
+
+    if [ "$_actual_empty" = false ] && [ "$_expected_empty" = true ]; then
+        _bytes=$(wc -c < "$_actual" | tr -d ' ')
+        echo "--- No $_stream expected, these $_bytes bytes produced:"
+        cat "$_actual"
+        if [ "$(tail -c 1 "$_actual" | wc -l)" -eq 0 ]; then echo ""; fi
+        echo ""
+        return 1
+    fi
+
+    if [ "$_actual_empty" = true ] && [ "$_expected_empty" = true ]; then
+        return 0
+    fi
+
+    # --- normalization and exact match check ---
+    _tmp_actual=$(mktemp)
+    _tmp_expected=$(mktemp)
+    normalise_for_comparison "$_actual" "$_options" "$_tmp_actual"
+    normalise_for_comparison "$_expected" "$_options" "$_tmp_expected"
+
+    if cmp -s "$_tmp_actual" "$_tmp_expected"; then
+        rm -f "$_tmp_actual" "$_tmp_expected"
+        return 0
+    fi
+
+    # --- newline failure cases ---
+    
+    # "Missing newline" -> Actual + '\n' == Expected
+    _tmp_actual_plus_nl=$(mktemp)
+    cp "$_tmp_actual" "$_tmp_actual_plus_nl"
+    printf '\n' >> "$_tmp_actual_plus_nl"
+    if cmp -s "$_tmp_actual_plus_nl" "$_tmp_expected"; then
+        echo "Missing newline at end of $_stream"
+        rm -f "$_tmp_actual" "$_tmp_expected" "$_tmp_actual_plus_nl"
+        return 1
+    fi
+    rm -f "$_tmp_actual_plus_nl"
+
+    # "Extra newline" -> Expected + '\n' == Actual
+    _tmp_expected_plus_nl=$(mktemp)
+    cp "$_tmp_expected" "$_tmp_expected_plus_nl"
+    printf '\n' >> "$_tmp_expected_plus_nl"
+    if cmp -s "$_tmp_actual" "$_tmp_expected_plus_nl"; then
+        echo "Extra newline at end of $_stream"
+        rm -f "$_tmp_actual" "$_tmp_expected" "$_tmp_expected_plus_nl"
+        return 1
+    fi
+    rm -f "$_tmp_expected_plus_nl"
+
+    # --- genuinely incorrect content ---
+    rm -f "$_tmp_actual" "$_tmp_expected"
+
+    _bytes=$(wc -c < "$_actual" | tr -d ' ')
+    echo "--- Incorrect $_stream of $_bytes bytes:"
+    cat "$_actual"
+    if [ "$(tail -c 1 "$_actual" | wc -l)" -eq 0 ]; then echo ""; fi
+    echo "" # blank line separator
+
+    _bytes_expected=$(wc -c < "$_expected" | tr -d ' ')
+    echo "--- Correct $_stream is these $_bytes_expected bytes:"
+    cat "$_expected"
+    if [ "$(tail -c 1 "$_expected" | wc -l)" -eq 0 ]; then echo ""; fi
+    echo "" # REQUIRED BLANK LINE separator after correct stream
+    
+    return 1
+}
+
+run_single_test() {
+    _test_path="$1"
+    _filename="$2"
+
+    test_name=$(basename "$_test_path")
+    arguments=$(get_arguments_from_file "$_test_path/arguments")
+    options=$(get_arguments_from_file "$_test_path/options")
+    expected_status=$(get_exit_status_from_file "$_test_path")
+
+    tmp_stdout=$(mktemp)
+    tmp_stderr=$(mktemp)
+
+    if [ -f "$_test_path/stdin" ]; then
+        # shellcheck disable=SC2086
+        "$_filename" $arguments < "$_test_path/stdin" >"$tmp_stdout" 2>"$tmp_stderr"
+    else
+        # shellcheck disable=SC2086
+        "$_filename" $arguments >"$tmp_stdout" 2>"$tmp_stderr"
+    fi
+
+    actual_status=$?
+
+    stdout_expected="$_test_path/stdout"
+    stderr_expected="$_test_path/stderr"
+    if ! [ -f "$stdout_expected" ]; then
+        stdout_expected="/dev/null"
+    fi
+    if ! [ -f "$stderr_expected" ]; then
+        stderr_expected="/dev/null"
+    fi
+}
+
+print_test_success() {
+    _test_name="$1"
+    _marks="$2"
+
+    echo "* Test $_test_name passed ($_marks marks)."
+}
+
+print_test_fail() {
+    _test_name="$1"
+
+    echo "* Test $_test_name failed."
+}
+
+process_test() {
+    _test_path="$1"
+    _submission="$2"
+    _test_mark="$3"
+
+    run_single_test "$_test_path" "$_submission"
+
+    _stdout_ok=true
+    _stderr_ok=true
+    _status_ok=true
+
+    _stdout_output=$(mktemp)
+    _stderr_output=$(mktemp)
+
+    if ! check_stream "stdout" "$tmp_stdout" "$stdout_expected" "$options" >"$_stdout_output" 2>&1; then
+        _stdout_ok=false
+    fi
+    if ! check_stream "stderr" "$tmp_stderr" "$stderr_expected" "$options" >"$_stderr_output" 2>&1; then
+        _stderr_ok=false
+    fi
+
+    if [ "$actual_status" -ne "$expected_status" ]; then
+        _status_ok=false
+    fi
+
+    rm "$tmp_stdout" "$tmp_stderr"
+
+    if [ "$_stdout_ok" = true ] && [ "$_stderr_ok" = true ] && [ "$_status_ok" = true ]; then
+        print_test_success "$test_name" "$_test_mark"
+        rm "$_stdout_output" "$_stderr_output"
+        test_result="$_test_mark"
+    else
+        print_test_fail "$test_name"
+        cat "$_stdout_output"
+        cat "$_stderr_output"
+        if [ "$_status_ok" = false ]; then
+            echo "Exit status of $actual_status incorrect should be $expected_status"
+        fi
+        rm "$_stdout_output" "$_stderr_output"
+        test_result=0
+    fi
+}
+
+sum_result() {
+    _result="$1"
+
+    if [ "$_result" -eq 0 ]; then
+        fail_count=$((fail_count + 1))
+        return
+    fi
+
+    pass_count=$((pass_count + 1))
+    mark_sum=$((mark_sum + _result))
+}
+
+print_student_footer() {
+    _pass_count="$1"
+    _fail_count="$2"
+    _mark_sum="$3"
+    _max_marks="$4"
+
+    echo "** $_pass_count tests passed, $_fail_count tests failed - mark: $_mark_sum/$_max_marks"
+}
+
+# ----- main function -----
+main() {
+    validate_arguments "$@"
+
+    assignment="$1"
+    test_dir="./.turnip/$assignment/tests"
+    submission_dir="./.turnip/$assignment"
+
+    for student in "$submission_dir"/z[0-9][0-9][0-9][0-9][0-9][0-9][0-9]; do
+        if ! [ -d "$student" ]; then
+            continue
+        fi
+        check_for_zid_dir "$student" || continue
+        pass_count=0
+        fail_count=0
+        mark_sum=0
+        max_marks=0
+
+        submission=$(get_latest_submission "$student")
+        print_student_header "$student" "$submission"
+
+        for test_name in $(ls "$test_dir" | sort); do
+            test_path="$test_dir/$test_name"
+            check_for_marks_file "$test_path" || continue
+
+            test_mark_value=$(cat "$test_path/marks")
+            max_marks=$((max_marks + test_mark_value))
+
+            test_result=0
+            process_test "$test_path" "$submission" "$test_mark_value"
+            sum_result "$test_result"
+        done
+
+        print_student_footer "$pass_count" "$fail_count" "$mark_sum" "$max_marks"
+    done
+}
+
+# ----- run script -----
+main "$@"

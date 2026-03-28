@@ -1,0 +1,47 @@
+#! /usr/bin/env dash
+#
+# COMP2041 Turnip - turnip-rm command for the turnip assignment program
+# turnip-rm
+#
+# turnip-rm removes an assignment.
+
+# ----- helper functions -----
+validate_argument_count() {
+  if [ "$1" -ne 1 ]; then
+    echo "usage: turnip-mark <assignment>" >&2
+    exit 1
+  fi
+}
+
+validate_assignment() {
+  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+    echo "turnip-mark: invalid assignment: $1" >&2
+    exit 1
+  fi
+
+  if ! [ -d "./.turnip/$1" ]; then
+    echo "turnip-mark: assignment $1 not found" >&2
+    exit 1
+  fi
+}
+
+validate_arguments() {
+    validate_argument_count "$#"
+    validate_assignment "$1"
+}
+
+
+# ----- main function -----
+main() {
+    validate_arguments "$@"
+
+    assignment="$1"
+    target_dir="./.turnip/$assignment"
+
+    rm -rf "$target_dir"
+    echo "assignment $assignment removed"
+}
+
+
+# ----- run script -----
+main "$@"

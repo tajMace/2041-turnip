@@ -1,0 +1,116 @@
+#! /usr/bin/env dash
+
+# COMP2041 Turnip - turnip-fetch command for the turnip assignment program
+# turnip-fetch
+#
+# This program was written by Taj Mace (z5691836) <taj.mace@unsw.edu.au>
+# on 21/04/2026
+#
+# turnip-fetch outputs the contents of a submission the student has made.
+
+
+# ----- helper functions -----
+validate_argument_count() {
+  if [ "$1" -ne 2 ] && [ "$1" -ne 3 ]; then
+    echo "usage: turnip-fetch <assignment> <zid> [n]" >&2
+    exit 1
+  fi
+}
+
+validate_assignment() {
+  if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+    echo "turnip-fetch: invalid assignment: $1" >&2
+    exit 1
+  fi
+
+  if ! [ -d "./.turnip/$1" ]; then
+    echo "turnip-fetch: assignment $1 not found" >&2
+    exit 1
+  fi
+}
+
+validate_zid() {
+  if ! echo "$1" | grep -qE '^z[0-9]{7}$'; then
+    echo "turnip-fetch: invalid zid: $1" >&2
+    exit 1
+  fi
+}
+
+validate_offset() {
+    if ! echo "$1" | grep -qE '^-?[0-9]+$'; then
+        echo "usage: turnip-fetch <assignment> <zid> [n]" >&2
+        exit 1
+    fi
+}
+
+validate_arguments() {
+    validate_argument_count "$#"
+    validate_assignment "$1"
+    validate_zid "$2"
+
+    if [ "$#" -eq 3 ]; then
+        validate_offset "$3"
+    fi
+}
+
+offset_to_absolute_submission() {
+    submission_dir="$1"
+    offset="$2"
+
+    num_submissions=$(find "$submission_dir" -type f | wc -l)
+
+    echo $((num_submissions + offset))
+}
+
+get_absolute_submission_number() {
+    submission_dir="$1"
+    submission_number="$2"
+
+    if [ -z "$submission_number" ]; then
+        absolute_submission=$(offset_to_absolute_submission "$submission_dir" 0)
+    elif [ "$submission_number" -le 0 ]; then
+        absolute_submission=$(offset_to_absolute_submission "$submission_dir" "$submission_number")
+    else
+        absolute_submission="$submission_number"
+    fi
+
+    echo "$absolute_submission"
+}
+
+get_submission_filepath() {
+    submission_dir="$1"
+    submission_number="$2"
+
+    find "$submission_dir" -maxdepth 1 -type f -name "*_${submission_number}_????????_??????.*" | head -n1
+}
+
+validate_filepath() {
+    filepath="$1"
+    assignment_name="$2"
+    submission_number="$3"
+
+    if [ ! -e "$filepath" ] || [ -z "$filepath" ]; then
+        echo "turnip-fetch: submission $submission_number not found for $assignment_name" >&2
+        exit 1
+    fi
+}
+
+
+# ----- main script -----
+main() {
+    validate_arguments "$@"
+    
+    assignment_name="$1"
+    zid="$2"
+    submission_number="$3"
+    submission_dir="./.turnip/$assignment_name/$zid"
+
+    absolute_submission=$(get_absolute_submission_number "$submission_dir" "$submission_number")
+    filepath=$(get_submission_filepath "$submission_dir" "$absolute_submission")
+
+    validate_filepath "$filepath" "$assignment_name" "$submission_number"
+    cat "$filepath"
+}
+
+# ----- run script -----
+main "$@"

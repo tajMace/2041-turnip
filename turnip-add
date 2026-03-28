@@ -1,0 +1,67 @@
+#! /usr/bin/env dash
+
+# COMP2041 Turnip - turnip-add command for the turnip assignment program
+# turnip-add.sh
+#
+# This program was written by Taj Mace (z5691836) <taj.mace@unsw.edu.au>
+# on 21/04/2026
+#
+# This command creates a new Turnip assignment
+# It also created a new .turnip directory if it doesn't exist.
+
+# ----- helper functions -----
+validate_argument_count() {
+    if [ "$1" -ne 2 ]; then
+        echo "usage: turnip-add <assignment> <tests>" >&2
+        exit 1
+    fi
+}
+
+validate_assignment_name() {
+    if ! echo "$1" | grep -qE '^[a-z][a-zA-Z0-9_]*$'; then
+        echo "turnip-add: invalid assignment: $1" >&2
+        exit 1
+    fi
+}
+
+validate_tests_filepath() {
+    if ! [ -f "$1" ]; then
+        echo "turnip-add: $1: No such file or directory" >&2
+        exit 1
+    fi
+}
+
+check_for_existing_assignment() {
+    if [ -d ".turnip/$1" ]; then
+	echo "turnip-add: assignment $1 already exists" >&2
+	exit 1
+    fi
+}
+
+# ----- main script -----
+main() {
+    validate_argument_count "$#"
+    validate_assignment_name "$1"
+
+    # create .turnip if needed
+    if [ ! -d ".turnip" ]; then
+        mkdir ".turnip"
+        echo "directory .turnip created"
+    fi
+
+    check_for_existing_assignment "$1"
+    validate_tests_filepath "$2"
+
+    DIR="./.turnip/$1/tests"
+    mkdir -p "$DIR"
+
+    # extract files from given path to new directory
+    tar --extract --file="$2" --directory="$DIR"
+
+    echo "assignment $1 created"
+}
+
+# ----- run script -----
+main "$@"
+
+
