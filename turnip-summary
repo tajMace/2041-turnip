@@ -3,32 +3,66 @@
 # COMP2041 Turnip - turnip-summary command for the turnip assignment program
 # turnip-summary
 #
+# This program was written by Taj Mace (z5691836) <taj.mace@unsw.edu.au>
+# on 26/04/2026
+#
 # Lists all assignments, with a count of how many students have made submissions.
 
-# ----- main script -----
-main() {
-  DIR="./.turnip"
+# ============================
+# ----- helper functions -----
+# ============================
 
-  if [ ! -d "$DIR" ]; then
-    echo "turnip-summary: nothing to summarise" >&2
-    exit 1
-  fi
-
-  if ! find "$DIR" -mindepth 1 -maxdepth 1 -type d | read -r _; then
-    echo "no assignments"
-    exit 1
-  fi
-
-  for directory in "$DIR"/*; do
-    [ -e "$directory" ] || continue
-    [ -d "$directory" ] || continue
-
-    assignment_name=${directory##*/}
-    submission_count=$(find "$directory" -mindepth 1 -maxdepth 1 -type d -name 'z[0-9][0-9][0-9][0-9][0-9][0-9][0-9]' | wc -l)
-
-    echo "assignment $assignment_name: submissions from $submission_count students"
-  done
+# checks if ONLY zero arguments were given
+validate_argument_count() {
+    if [ "$1" -ne 0 ]; then
+        echo "usage: turnip-summary" >&2
+        exit 1
+    fi
 }
 
+# checks if turnip directory exists
+# then checks if there is anything inside it
+validate_turnip_directory() {
+    _turnip_dir="$1"
+
+    if [ ! -d "$_turnip_dir" ]; then
+        echo "turnip-summary: turnip directory .turnip not found" >&2
+        exit 1
+    fi
+
+    if ! find "$_turnip_dir" -mindepth 1 -maxdepth 1 -type d | read -r _; then
+        echo "no assignments"
+        exit 1
+    fi
+}
+
+# prints summary for one given assignment
+print_assignment_summary() {
+    _assignment="$1"
+
+    assignment_name=${_assignment##*/}
+    submission_count=$(find "$_assignment" -mindepth 1 -maxdepth 1 -type d -name 'z[0-9][0-9][0-9][0-9][0-9][0-9][0-9]' | wc -l)
+
+    echo "assignment $assignment_name: submissions from $submission_count students"
+}
+
+# =======================
+# ----- main script -----
+# =======================
+main() {
+    turnip_dir="./.turnip"
+    
+    validate_turnip_directory "$turnip_dir"
+
+    for assignment in "$turnip_dir"/*; do
+        [ -e "$assignment" ] || continue
+        [ -d "$assignment" ] || continue
+
+        print_assignment_summary "$assignment"
+    done
+}
+
+# ======================
 # ----- run script -----
+# ======================
 main
