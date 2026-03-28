@@ -48,6 +48,11 @@ validate_arguments() {
 
 # checks given filepath contains a tar to extract
 validate_tests_filepath() {
+    if ! echo "$1" | grep -qE '^[a-zA-Z0-9_./-]+$'; then
+        echo "turnip-add: invalid tests: $1" >&2
+        exit 1
+    fi
+     
     if ! [ -f "$1" ]; then
         echo "turnip-add: $1: No such file or directory" >&2
         exit 1
