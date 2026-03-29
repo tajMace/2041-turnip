@@ -277,12 +277,10 @@ run_single_test() {
     tmp_stdout=$(mktemp)
     tmp_stderr=$(mktemp)
 
-    # spellcheck deliberately disabled: word splitting required to parse command-line arguments
+    # word splitting required to parse command-line arguments
     if [ -f "$_test_path/stdin" ]; then
-        # shellcheck disable=SC2086
         "$_filename" $arguments < "$_test_path/stdin" >"$tmp_stdout" 2>"$tmp_stderr"
     else
-        # shellcheck disable=SC2086
         "$_filename" $arguments >"$tmp_stdout" 2>"$tmp_stderr"
     fi
 
@@ -418,42 +416,57 @@ print_student_footer() {
     echo "** $_pass_count tests passed, $_fail_count tests failed - mark: $_mark_sum/$_max_marks"
 }
 
+# runs a single test on a single student's submission
+# marks the test, prints result, and tally's new sum
+mark_single_test() {
+    _test_name="$1"
+    _submission="$2"
+
+    _test_path="$TEST_DIR/$_test_name"
+    check_for_marks_file "$_test_path" || return
+
+    test_mark_value=$(cat "$_test_path/marks")
+    max_marks=$((max_marks + test_mark_value))
+
+    test_result=0
+    process_test "$_test_path" "$_submission" "$test_mark_value"
+    sum_result "$test_result"
+}
+
+# runs all test on a single student's submission, printing
+# the accompanying header and footer with sum total
+mark_student_submission() {
+    _student="$1"
+
+    pass_count=0
+    fail_count=0
+    mark_sum=0
+    max_marks=0
+
+    submission=$(get_latest_submission "$_student")
+    print_student_header "$_student" "$submission"
+
+    for test_name in $(ls "$TEST_DIR" | sort); do
+        mark_single_test "$test_name" "$submission"
+    done
+
+    print_student_footer "$pass_count" "$fail_count" "$mark_sum" "$max_marks"
+}
+
 # =========================
 # ----- main function -----
 # =========================
 main() {
     validate_arguments "$@"
 
-    assignment="$1"
-    test_dir="./.turnip/$assignment/tests"
-    submission_dir="./.turnip/$assignment"
+    ASSIGNMENT="$1"
+    TEST_DIR="./.turnip/$ASSIGNMENT/tests"
+    SUBMISSION_DIR="./.turnip/$ASSIGNMENT"
 
-    for student in "$submission_dir"/z[0-9][0-9][0-9][0-9][0-9][0-9][0-9]; do
-        if ! [ -d "$student" ]; then
-            continue
-        fi
+    for student in "$SUBMISSION_DIR"/z[0-9][0-9][0-9][0-9][0-9][0-9][0-9]; do
+        [ -d "$student" ] || continue
         
-        pass_count=0
-        fail_count=0
-        mark_sum=0
-        max_marks=0
-
-        submission=$(get_latest_submission "$student")
-        print_student_header "$student" "$submission"
-
-        for test_name in $(ls "$test_dir" | sort); do
-            test_path="$test_dir/$test_name"
-            check_for_marks_file "$test_path" || continue
-
-            test_mark_value=$(cat "$test_path/marks")
-            max_marks=$((max_marks + test_mark_value))
-
-            test_result=0
-            process_test "$test_path" "$submission" "$test_mark_value"
-            sum_result "$test_result"
-        done
-
-        print_student_footer "$pass_count" "$fail_count" "$mark_sum" "$max_marks"
+        mark_student_submission "$student"
     done
 }
 
